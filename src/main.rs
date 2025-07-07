@@ -10,7 +10,54 @@ mod common;
 mod resp2;
 
 fn main() {
-    let listener = TcpListener::bind("127.0.0.1:6379").unwrap();
+    let mut listener = TcpListener::bind("127.0.0.1:6379").unwrap();
+
+    let args: Vec<String> = std::env::args().collect();
+
+    match args.len() {
+        1 => {}
+        2 => match args[1].as_str() {
+            "--help" | "-h" => {
+                println!("Usage: redis [options] [port]");
+                println!("Options:");
+                println!("  --help, -h     Show this help message");
+                println!("  --version, -v  Show version information");
+                println!("  --port, -p     Specify the port to listen on (default: 6379)");
+            }
+            "--version" | "-v" => {
+                println!("Redis server version 0.1.0");
+            }
+            _ => {
+                println!(
+                    "Unknown option: {}. Use '-h' to find out more options",
+                    args[1]
+                );
+            }
+        },
+        3 => match args[1].as_str() {
+            "--port" | "-p" => {
+                let port = match args[2].parse::<u16>() {
+                    Ok(p) => p,
+                    Err(_) => {
+                        println!("Invalid port number: {}", args[2]);
+                        return;
+                    }
+                };
+                listener = TcpListener::bind(format!("127.0.0.1:{}", port)).unwrap();
+            }
+            _ => {
+                println!(
+                    "Unknown option: {}. Use '-h' to find out more options",
+                    args[1]
+                );
+                return;
+            }
+        },
+        _ => {
+            println!("Too many arguments. Use '-h' to find out more options");
+            return;
+        }
+    };
 
     let env = Arc::new(Mutex::new(Environment::new()));
 
