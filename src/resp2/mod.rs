@@ -1,24 +1,41 @@
 pub mod command;
 pub mod serialization;
 
-use std::io::Write;
+use std::{
+    io::Write,
+    sync::{Arc, Mutex},
+};
 
 use command::*;
 use serialization::*;
 
+use crate::common::Environment;
+
 pub struct Resp2 {
-    pub kind: Resp2Command,
+    pub kind: Command,
     pub data: Vec<String>,
+    pub is_array: bool,
     pub stream: Option<std::net::TcpStream>,
+    pub environment: Arc<Mutex<Environment>>,
 }
 
 impl Resp2 {
-    pub fn with_stream(stream: std::net::TcpStream) -> Self {
+    pub fn new() -> Self {
         Resp2 {
-            kind: Resp2Command::UNDEFINED,
+            kind: Command::UNDEFINED,
             data: Vec::new(),
-            stream: Some(stream),
+            is_array: true,
+            stream: None,
+            environment: Arc::new(Mutex::new(Environment::new())),
         }
+    }
+
+    pub fn set_stream(&mut self, stream: std::net::TcpStream) {
+        self.stream = Some(stream);
+    }
+
+    pub fn set_environment(&mut self, environment: Arc<Mutex<Environment>>) {
+        self.environment = environment;
     }
 
     pub fn process_deserialization(&mut self, input: &str) -> Result<(), String> {
@@ -60,8 +77,8 @@ impl Resp2 {
         self.kind = self
             .data
             .first()
-            .map(|cmd| Resp2Command::from_str(cmd))
-            .unwrap_or(Resp2Command::UNDEFINED);
+            .map(|cmd| Command::from_str(cmd))
+            .unwrap_or(Command::UNDEFINED);
 
         Ok(())
     }
@@ -70,17 +87,51 @@ impl Resp2 {
         let stream = self.stream.as_mut().ok_or("Missing stream")?;
 
         match self.kind {
-            Resp2Command::PING => {
+            Command::PING => {
                 stream
                     .write_all(b"+PONG\r\n")
                     .map_err(|e| format!("Failed to write to stream: {}", e))?;
             }
-            Resp2Command::ECHO => {
+            Command::ECHO => {
                 let msg = self.data.get(1).cloned().unwrap_or_default();
                 let response = format!("+{}\r\n", msg);
                 stream
                     .write_all(response.as_bytes())
                     .map_err(|e| format!("Failed to write to stream: {}", e))?;
+            }
+            Command::SET => {
+                if self.data.len() < 3 {
+                    return Err("SET command requires at least 3 arguments".to_string());
+                }
+                let key = &self.data[1];
+                let value = &self.data[2];
+                self.environment
+                    .lock()
+                    .map_err(|e| e.to_string())?
+                    .set(key.clone(), value.clone());
+                stream
+                    .write_all(b"+OK\r\n")
+                    .map_err(|e| format!("Failed to write to stream: {}", e))?;
+            }
+            Command::GET => {
+                if self.data.len() < 2 {
+                    return Err("GET command requires at least 2 arguments".to_string());
+                }
+                let key = &self.data[1];
+                let env = self.environment.lock().map_err(|e| e.to_string())?;
+                match env.get(key) {
+                    Some(val) => {
+                        let response = format!("+{}\r\n", val);
+                        stream
+                            .write_all(response.as_bytes())
+                            .map_err(|e| format!("Failed to write to stream: {}", e))?;
+                    }
+                    None => {
+                        stream
+                            .write_all(b"$-1\r\n")
+                            .map_err(|e| format!("Failed to write to stream: {}", e))?;
+                    }
+                }
             }
             _ => {
                 let err = b"-ERR unknown command\r\n";
@@ -96,8 +147,10 @@ impl Resp2 {
 
 impl Serialize<String> for Resp2 {
     fn serialize(&self) -> String {
-        let mut out = format!("*{}\r\n", self.data.len());
-
+        let mut out = String::new();
+        if self.is_array {
+            out.push_str(&format!("*{}\r\n", self.data.len()));
+        }
         for part in &self.data {
             out.push_str(&format!("${}\r\n{}\r\n", part.len(), part));
         }
@@ -108,7 +161,12 @@ impl Serialize<String> for Resp2 {
 
 impl Serialize<Vec<u8>> for Resp2 {
     fn serialize(&self) -> Vec<u8> {
-        let mut out = format!("*{}\r\n", self.data.len()).into_bytes();
+        let mut out = String::new();
+        if self.is_array {
+            out.push_str(&format!("*{}\r\n", self.data.len()));
+        }
+
+        let mut out = out.into_bytes();
 
         for part in &self.data {
             out.extend_from_slice(format!("${}\r\n", part.len()).as_bytes());

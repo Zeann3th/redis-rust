@@ -1,30 +1,36 @@
 use std::fmt::Display;
 
-pub enum Resp2Command {
+pub enum Command {
     PING,
     UNDEFINED,
     PONG,
     ECHO,
+    SET,
+    GET,
 }
 
-impl Resp2Command {
+impl Command {
     pub fn from_str(cmd: &str) -> Self {
         match cmd.to_uppercase().as_str() {
-            "PING" => Resp2Command::PING,
-            "PONG" => Resp2Command::PONG,
-            "ECHO" => Resp2Command::ECHO,
-            _ => Resp2Command::UNDEFINED,
+            "PING" => Command::PING,
+            "PONG" => Command::PONG,
+            "ECHO" => Command::ECHO,
+            "SET" => Command::SET,
+            "GET" => Command::GET,
+            _ => Command::UNDEFINED,
         }
     }
 }
 
-impl Display for Resp2Command {
+impl Display for Command {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Resp2Command::PING => write!(f, "PING"),
-            Resp2Command::UNDEFINED => write!(f, "UNDEFINED"),
-            Resp2Command::PONG => write!(f, "PONG"),
-            Resp2Command::ECHO => write!(f, "ECHO"),
+            Command::PING => write!(f, "PING"),
+            Command::UNDEFINED => write!(f, "UNDEFINED"),
+            Command::PONG => write!(f, "PONG"),
+            Command::ECHO => write!(f, "ECHO"),
+            Command::SET => write!(f, "SET"),
+            Command::GET => write!(f, "GET"),
         }
     }
 }
