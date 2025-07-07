@@ -8,6 +8,8 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use base64::engine::general_purpose::STANDARD;
+use base64::Engine;
 use command::*;
 use serialization::*;
 
@@ -313,6 +315,22 @@ impl Resp2 {
                 stream
                     .write_all(response.as_bytes())
                     .map_err(|e| format!("Failed to write to stream: {}", e))?;
+
+                // Send empty RDB
+                let rdb_base64 = "UkVESVMwMDEx+glyZWRpcy12ZXIFNy4yLjD6CnJlZGlzLWJpdHPAQPoFY3RpbWXCbQi8ZfoIdXNlZC1tZW3CsMQQAPoIYW9mLWJhc2XAAP/wbjv+wP9aog==";
+                let rdb_data = STANDARD
+                    .decode(rdb_base64)
+                    .map_err(|e| format!("Failed to decode RDB base64: {}", e))?;
+
+                let header = format!("${}\r\n", rdb_data.len());
+                stream
+                    .write_all(header.as_bytes())
+                    .map_err(|e| format!("Failed to write RDB header: {}", e))?;
+
+                // 4. Send raw RDB contents
+                stream
+                    .write_all(&rdb_data)
+                    .map_err(|e| format!("Failed to write RDB body: {}", e))?;
             }
             _ => {
                 let stream = self.stream.as_mut().ok_or("Missing stream")?;
