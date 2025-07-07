@@ -1,10 +1,16 @@
 use std::{
-    io::{BufReader, Read},
-    net::TcpListener,
+    io::{BufReader, Read, Write},
+    net::{TcpListener, TcpStream},
     sync::{Arc, Mutex},
 };
 
-use crate::{common::Environment, resp2::serialization::Deserialize};
+use crate::{
+    common::Environment,
+    resp2::{
+        serialization::{Deserialize, Serialize},
+        Resp2,
+    },
+};
 
 mod common;
 mod resp2;
@@ -13,6 +19,7 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     let mut port: u16 = 6379;
     let mut role = "master".to_string();
+    let mut host = (String::new(), 0u16);
 
     let mut i = 1;
     while i < args.len() {
@@ -45,11 +52,25 @@ fn main() {
             }
             "--replicaof" => {
                 if i + 1 >= args.len() {
-                    eprintln!("Expected port number after '{}'", args[i]);
+                    eprintln!("Expected host and port after '{}'", args[i]);
                     return;
                 }
+
+                let replicaof = &args[i + 1];
+                host = replicaof
+                    .split_once(' ')
+                    .map(|(h, p)| (h.to_string(), p.parse::<u16>().unwrap_or(0)))
+                    .unwrap_or((String::new(), 0));
+
+                let (master_host, master_port) = host.clone();
+
+                if master_host.is_empty() || master_port == 0 {
+                    eprintln!("Invalid host or port for --replicaof: '{}'", replicaof);
+                    return;
+                }
+
                 role = "slave".to_string();
-                i += 1;
+                i += if args[i + 1].contains(' ') { 1 } else { 2 };
             }
             unknown => {
                 eprintln!("Unknown argument '{}'. Use -h for help.", unknown);
@@ -63,10 +84,29 @@ fn main() {
     println!("Listening on 127.0.0.1:{}", port);
 
     let env = Arc::new(Mutex::new(Environment::new(
-        role,
+        role.clone(),
         "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb".to_string(),
         0,
     )));
+
+    if role.clone() == "slave" {
+        let mut master_stream = match TcpStream::connect(host.clone()) {
+            Ok(s) => s,
+            Err(e) => {
+                panic!("Failed to connect to master: {}", e);
+            }
+        };
+
+        let mut resp2 = Resp2::new(env.clone());
+        resp2.set_kind(resp2::command::Resp2Command::PING);
+        resp2.set_is_array(true);
+        resp2.set_data(vec!["PING".to_string()]);
+        let response: Vec<u8> = resp2.serialize();
+
+        if let Err(e) = master_stream.write_all(&response) {
+            panic!("Failed to write to stream: {}", e);
+        }
+    }
 
     for stream in listener.incoming() {
         match stream {
