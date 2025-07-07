@@ -271,31 +271,47 @@ impl Resp2 {
                 if n == 0 {
                     return Err("Connection closed by master".to_string());
                 }
-                let buffer = match String::from_utf8(buffer[..n].to_vec()) {
-                    Ok(s) => s,
-                    Err(e) => return Err(format!("Failed to convert bytes to string: {}", e)),
-                };
-                if !buffer.starts_with("+FULLRESYNC") {
-                    return Err(format!("Unexpected response from master: '{}'", buffer));
-                }
-                let parts: Vec<&str> = buffer.split_whitespace().collect();
-                if parts.len() < 3 {
-                    return Err("Invalid FULLRESYNC response from master".to_string());
-                }
-                let replid = parts[1].to_string();
-                let offset = parts[2]
-                    .parse::<u64>()
-                    .map_err(|_| "Invalid offset in FULLRESYNC response".to_string())?;
+                let end = buffer[..n].windows(2).position(|w| w == b"\r\n");
+                if let Some(pos) = end {
+                    let line = &buffer[..pos];
+                    let header = std::str::from_utf8(line)
+                        .map_err(|e| format!("Header is not valid UTF-8: {}", e))?;
 
-                {
+                    if !header.starts_with("+FULLRESYNC") {
+                        return Err(format!("Unexpected response from master: '{}'", header));
+                    }
+
+                    let parts: Vec<&str> = header.split_whitespace().collect();
+                    if parts.len() < 3 {
+                        return Err("Invalid FULLRESYNC response from master".to_string());
+                    }
+                    let replid = parts[1].to_string();
+                    let offset = parts[2]
+                        .parse::<u64>()
+                        .map_err(|_| "Invalid offset in FULLRESYNC response".to_string())?;
+
                     env.set_master_replid(replid);
                     env.set_master_repl_offset(offset);
+                } else {
+                    return Err("No CRLF found in FULLRESYNC response".to_string());
                 }
             }
             Resp2Command::REPLCONF => {
                 let stream = self.stream.as_mut().ok_or("Missing stream")?;
                 stream
                     .write_all(b"+OK\r\n")
+                    .map_err(|e| format!("Failed to write to stream: {}", e))?;
+            }
+            Resp2Command::PSYNC => {
+                let stream = self.stream.as_mut().ok_or("Missing stream")?;
+                // let env = self.environment.lock().map_err(|e| e.to_string())?;
+                let response = format!(
+                    "+FULLRESYNC {} {}\r\n",
+                    "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb".to_string(),
+                    0
+                );
+                stream
+                    .write_all(response.as_bytes())
                     .map_err(|e| format!("Failed to write to stream: {}", e))?;
             }
             _ => {
