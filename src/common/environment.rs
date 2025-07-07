@@ -6,20 +6,32 @@ use std::{
 #[allow(dead_code)]
 pub struct Environment {
     role: String,
+    master_replid: String,
+    master_repl_offset: u64,
     values: HashMap<String, (String, Option<SystemTime>)>,
 }
 
 #[allow(dead_code)]
 impl Environment {
-    pub fn new(role: String) -> Self {
+    pub fn new(role: String, master_replid: String, master_repl_offset: u64) -> Self {
         Environment {
             role,
+            master_replid,
+            master_repl_offset,
             values: HashMap::new(),
         }
     }
 
     pub fn role(&self) -> &str {
         &self.role
+    }
+
+    pub fn master_replid(&self) -> &str {
+        &self.master_replid
+    }
+
+    pub fn master_repl_offset(&self) -> u64 {
+        self.master_repl_offset
     }
 
     pub fn set(&mut self, key: String, value: String, px: Option<u64>) {

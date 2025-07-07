@@ -167,15 +167,17 @@ impl Resp2 {
                 let section = &self.data[1];
                 let response: Vec<u8> = match info::InfoSection::from_str(section) {
                     InfoSection::REPLICATION => {
-                        let mut resp2_obj = Resp2::new(self.environment.clone());
-                        resp2_obj.set_kind(Resp2Command::INFO);
-                        resp2_obj.set_data(vec![format!(
-                            "role:{}",
-                            self.environment.lock().unwrap().role()
-                        )]);
-                        resp2_obj.set_is_array(false);
+                        let env = self.environment.lock().map_err(|e| e.to_string())?;
+                        let content = format!(
+                            "role:{}\r\nmaster_replid:{}\r\nmaster_repl_offset:{}",
+                            env.role(),
+                            env.master_replid(),
+                            env.master_repl_offset()
+                        );
 
-                        resp2_obj.serialize()
+                        format!("${}\r\n{}\r\n", content.len(), content)
+                            .as_bytes()
+                            .to_vec()
                     }
                 };
 

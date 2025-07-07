@@ -62,7 +62,11 @@ fn main() {
     let listener = TcpListener::bind(("127.0.0.1", port)).unwrap();
     println!("Listening on 127.0.0.1:{}", port);
 
-    let env = Arc::new(Mutex::new(Environment::new(role)));
+    let env = Arc::new(Mutex::new(Environment::new(
+        role,
+        "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb".to_string(),
+        0,
+    )));
 
     for stream in listener.incoming() {
         match stream {
