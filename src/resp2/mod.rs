@@ -1,4 +1,5 @@
 pub mod command;
+pub mod info;
 pub mod serialization;
 
 use std::{
@@ -9,25 +10,37 @@ use std::{
 use command::*;
 use serialization::*;
 
-use crate::common::Environment;
+use crate::{common::Environment, resp2::info::InfoSection};
 
 pub struct Resp2 {
-    pub kind: Command,
-    pub data: Vec<String>,
-    pub is_array: bool,
-    pub stream: Option<std::net::TcpStream>,
-    pub environment: Arc<Mutex<Environment>>,
+    kind: Resp2Command,
+    data: Vec<String>,
+    is_array: bool,
+    stream: Option<std::net::TcpStream>,
+    environment: Arc<Mutex<Environment>>,
 }
 
 impl Resp2 {
     pub fn new() -> Self {
         Resp2 {
-            kind: Command::UNDEFINED,
+            kind: Resp2Command::UNDEFINED,
             data: Vec::new(),
             is_array: true,
             stream: None,
             environment: Arc::new(Mutex::new(Environment::new())),
         }
+    }
+
+    pub fn set_kind(&mut self, kind: Resp2Command) {
+        self.kind = kind;
+    }
+
+    pub fn set_data(&mut self, data: Vec<String>) {
+        self.data = data;
+    }
+
+    pub fn set_is_array(&mut self, is_array: bool) {
+        self.is_array = is_array;
     }
 
     pub fn set_stream(&mut self, stream: std::net::TcpStream) {
@@ -38,7 +51,7 @@ impl Resp2 {
         self.environment = environment;
     }
 
-    pub fn process_deserialization(&mut self, input: &str) -> Result<(), String> {
+    fn handle_deserialization(&mut self, input: &str) -> Result<(), String> {
         let mut parts = input.split("\r\n");
 
         let len_str = parts.next().ok_or("Missing RESP2 array header")?;
@@ -77,8 +90,8 @@ impl Resp2 {
         self.kind = self
             .data
             .first()
-            .map(|cmd| Command::from_str(cmd))
-            .unwrap_or(Command::UNDEFINED);
+            .map(|cmd| Resp2Command::from_str(cmd))
+            .unwrap_or(Resp2Command::UNDEFINED);
 
         Ok(())
     }
@@ -87,19 +100,19 @@ impl Resp2 {
         let stream = self.stream.as_mut().ok_or("Missing stream")?;
 
         match self.kind {
-            Command::PING => {
+            Resp2Command::PING => {
                 stream
                     .write_all(b"+PONG\r\n")
                     .map_err(|e| format!("Failed to write to stream: {}", e))?;
             }
-            Command::ECHO => {
+            Resp2Command::ECHO => {
                 let msg = self.data.get(1).cloned().unwrap_or_default();
                 let response = format!("+{}\r\n", msg);
                 stream
                     .write_all(response.as_bytes())
                     .map_err(|e| format!("Failed to write to stream: {}", e))?;
             }
-            Command::SET => {
+            Resp2Command::SET => {
                 if self.data.len() < 3 {
                     return Err("SET command requires at least 3 arguments".to_string());
                 }
@@ -126,7 +139,7 @@ impl Resp2 {
                     .write_all(b"+OK\r\n")
                     .map_err(|e| format!("Failed to write to stream: {}", e))?;
             }
-            Command::GET => {
+            Resp2Command::GET => {
                 if self.data.len() < 2 {
                     return Err("GET command requires at least 2 arguments".to_string());
                 }
@@ -145,6 +158,29 @@ impl Resp2 {
                             .map_err(|e| format!("Failed to write to stream: {}", e))?;
                     }
                 }
+            }
+            Resp2Command::INFO => {
+                if self.data.len() < 2 {
+                    return Err("INFO command requires at least 1 argument".to_string());
+                }
+                let section = &self.data[1];
+                let response: Vec<u8> = match info::InfoSection::from_str(section) {
+                    InfoSection::REPLICATION => {
+                        let resp2_obj = Resp2 {
+                            kind: Resp2Command::INFO,
+                            data: vec!["role:master".to_string()],
+                            is_array: false,
+                            stream: None,
+                            environment: self.environment.clone(),
+                        };
+
+                        resp2_obj.serialize()
+                    }
+                };
+
+                stream
+                    .write_all(&response)
+                    .map_err(|e| format!("Failed to write to stream: {}", e))?;
             }
             _ => {
                 let err = b"-ERR unknown command\r\n";
@@ -194,13 +230,13 @@ impl Serialize<Vec<u8>> for Resp2 {
 
 impl Deserialize<&str> for Resp2 {
     fn deserialize(&mut self, input: &str) -> Result<(), String> {
-        self.process_deserialization(input)
+        self.handle_deserialization(input)
     }
 }
 
 impl Deserialize<Vec<u8>> for Resp2 {
     fn deserialize(&mut self, input: Vec<u8>) -> Result<(), String> {
         let input = String::from_utf8(input).map_err(|e| e.to_string())?;
-        self.process_deserialization(&input)
+        self.handle_deserialization(&input)
     }
 }

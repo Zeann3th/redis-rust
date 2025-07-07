@@ -1,3 +1,5 @@
+mod cli;
 mod environment;
 
-pub use environment::Environment;
+pub use cli::*;
+pub use environment::*;

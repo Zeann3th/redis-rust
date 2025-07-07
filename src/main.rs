@@ -4,60 +4,41 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::{common::Environment, resp2::serialization::Deserialize};
+use clap::Parser;
+
+use crate::{
+    common::{CLICommand, Cli, Environment},
+    resp2::{
+        command::Resp2Command,
+        serialization::{Deserialize, Serialize},
+    },
+};
 
 mod common;
 mod resp2;
 
 fn main() {
-    let mut listener = TcpListener::bind("127.0.0.1:6379").unwrap();
+    let cli = Cli::parse();
 
-    let args: Vec<String> = std::env::args().collect();
+    let port = cli.port;
+    let listener = TcpListener::bind(("127.0.0.1", port)).unwrap();
 
-    match args.len() {
-        1 => {}
-        2 => match args[1].as_str() {
-            "--help" | "-h" => {
-                println!("Usage: redis [options] [port]");
-                println!("Options:");
-                println!("  --help, -h     Show this help message");
-                println!("  --version, -v  Show version information");
-                println!("  --port, -p     Specify the port to listen on (default: 6379)");
-            }
-            "--version" | "-v" => {
-                println!("Redis server version 0.1.0");
-            }
-            _ => {
-                println!(
-                    "Unknown option: {}. Use '-h' to find out more options",
-                    args[1]
-                );
-            }
-        },
-        3 => match args[1].as_str() {
-            "--port" | "-p" => {
-                let port = match args[2].parse::<u16>() {
-                    Ok(p) => p,
-                    Err(_) => {
-                        println!("Invalid port number: {}", args[2]);
-                        return;
-                    }
-                };
-                listener = TcpListener::bind(format!("127.0.0.1:{}", port)).unwrap();
-            }
-            _ => {
-                println!(
-                    "Unknown option: {}. Use '-h' to find out more options",
-                    args[1]
-                );
-                return;
-            }
-        },
-        _ => {
-            println!("Too many arguments. Use '-h' to find out more options");
-            return;
+    if let Some(cmd) = &cli.command {
+        match cmd {
+            CLICommand::Info { section } => match section.as_str() {
+                "replication" => {
+                    let mut resp2 = resp2::Resp2::new();
+                    resp2.set_kind(Resp2Command::INFO);
+                    resp2.set_data(vec!["role:master".to_string()]);
+                    let response: String = resp2.serialize();
+                    println!("{}", response);
+                }
+                _ => {
+                    println!("Unsupported INFO section: {}", section);
+                }
+            },
         }
-    };
+    }
 
     let env = Arc::new(Mutex::new(Environment::new()));
 
