@@ -105,10 +105,23 @@ impl Resp2 {
                 }
                 let key = &self.data[1];
                 let value = &self.data[2];
-                self.environment
-                    .lock()
-                    .map_err(|e| e.to_string())?
-                    .set(key.clone(), value.clone());
+
+                let mut exp: Option<u64> = None;
+                if self.data.len() == 5 && self.data[3].to_uppercase() == "PX" {
+                    let ms = &self.data[4];
+                    exp = match ms.parse::<u64>() {
+                        Ok(val) => Some(val),
+                        Err(_) => {
+                            return Err(format!("Invalid PX value: '{}'", ms));
+                        }
+                    };
+                }
+
+                self.environment.lock().map_err(|e| e.to_string())?.set(
+                    key.clone(),
+                    value.clone(),
+                    exp,
+                );
                 stream
                     .write_all(b"+OK\r\n")
                     .map_err(|e| format!("Failed to write to stream: {}", e))?;
@@ -118,7 +131,7 @@ impl Resp2 {
                     return Err("GET command requires at least 2 arguments".to_string());
                 }
                 let key = &self.data[1];
-                let env = self.environment.lock().map_err(|e| e.to_string())?;
+                let mut env = self.environment.lock().map_err(|e| e.to_string())?;
                 match env.get(key) {
                     Some(val) => {
                         let response = format!("+{}\r\n", val);
