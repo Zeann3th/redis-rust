@@ -3,16 +3,23 @@ use std::{
     time::{Duration, SystemTime},
 };
 
+#[allow(dead_code)]
 pub struct Environment {
-    pub values: HashMap<String, (String, Option<SystemTime>)>,
+    role: String,
+    values: HashMap<String, (String, Option<SystemTime>)>,
 }
 
 #[allow(dead_code)]
 impl Environment {
-    pub fn new() -> Self {
+    pub fn new(role: String) -> Self {
         Environment {
+            role,
             values: HashMap::new(),
         }
+    }
+
+    pub fn role(&self) -> &str {
+        &self.role
     }
 
     pub fn set(&mut self, key: String, value: String, px: Option<u64>) {

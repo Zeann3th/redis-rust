@@ -20,14 +20,15 @@ pub struct Resp2 {
     environment: Arc<Mutex<Environment>>,
 }
 
+#[allow(dead_code)]
 impl Resp2 {
-    pub fn new() -> Self {
+    pub fn new(environment: Arc<Mutex<Environment>>) -> Self {
         Resp2 {
             kind: Resp2Command::UNDEFINED,
             data: Vec::new(),
             is_array: true,
             stream: None,
-            environment: Arc::new(Mutex::new(Environment::new())),
+            environment,
         }
     }
 
@@ -166,13 +167,13 @@ impl Resp2 {
                 let section = &self.data[1];
                 let response: Vec<u8> = match info::InfoSection::from_str(section) {
                     InfoSection::REPLICATION => {
-                        let resp2_obj = Resp2 {
-                            kind: Resp2Command::INFO,
-                            data: vec!["role:master".to_string()],
-                            is_array: false,
-                            stream: None,
-                            environment: self.environment.clone(),
-                        };
+                        let mut resp2_obj = Resp2::new(self.environment.clone());
+                        resp2_obj.set_kind(Resp2Command::INFO);
+                        resp2_obj.set_data(vec![format!(
+                            "role:{}",
+                            self.environment.lock().unwrap().role()
+                        )]);
+                        resp2_obj.set_is_array(false);
 
                         resp2_obj.serialize()
                     }
