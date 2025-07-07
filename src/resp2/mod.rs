@@ -193,10 +193,9 @@ impl Resp2 {
                     .map_err(|e| format!("Failed to write to stream: {}", e))?;
             }
             Resp2Command::INTITIALIZE => {
-                let env = self.environment.lock().map_err(|e| e.to_string())?;
+                let mut env = self.environment.lock().map_err(|e| e.to_string())?;
                 let master_host = env.master_host().ok_or("Master host not set")?;
                 let master_port = env.master_port().ok_or("Master port not set")?;
-
                 let mut master_stream = TcpStream::connect((master_host, master_port))
                     .map_err(|e| format!("Failed to connect to master: {}", e))?;
 
@@ -206,7 +205,6 @@ impl Resp2 {
                 ping.set_is_array(true);
                 ping.set_data(vec!["PING".to_string()]);
                 let ping_payload: Vec<u8> = ping.serialize();
-
                 master_stream
                     .write_all(&ping_payload)
                     .map_err(|e| format!("Failed to send handshake to master: {}", e))?;
@@ -226,7 +224,6 @@ impl Resp2 {
                     env.port().to_string(),
                 ]);
                 let replconf_payload: Vec<u8> = replconf.serialize();
-
                 master_stream
                     .write_all(&replconf_payload)
                     .map_err(|e| format!("Failed to send REPLCONF to master: {}", e))?;
@@ -246,7 +243,6 @@ impl Resp2 {
                     "psync2".to_string(),
                 ]);
                 let replconf_capa_payload: Vec<u8> = replconf_capa.serialize();
-
                 master_stream
                     .write_all(&replconf_capa_payload)
                     .map_err(|e| format!("Failed to send REPLCONF capa to master: {}", e))?;
@@ -254,6 +250,46 @@ impl Resp2 {
                 // OK
                 if self.read_master(&mut master_stream).is_err() {
                     return Err("Failed to read from master".to_string());
+                }
+
+                // PSYNC <REPLID> <OFFSET>
+                let mut psync = Resp2::new(self.environment.clone());
+                psync.set_kind(Resp2Command::PSYNC);
+                psync.set_is_array(true);
+                psync.set_data(vec!["PSYNC".to_string(), "?".to_string(), "-1".to_string()]);
+
+                let psync_payload: Vec<u8> = psync.serialize();
+                master_stream
+                    .write_all(&psync_payload)
+                    .map_err(|e| format!("Failed to send PSYNC to master: {}", e))?;
+
+                // Update master_replid and master_repl_offset
+                let mut buffer = vec![0; 1024];
+                let n = master_stream
+                    .read(&mut buffer)
+                    .map_err(|e| format!("Failed to read from stream: {}", e))?;
+                if n == 0 {
+                    return Err("Connection closed by master".to_string());
+                }
+                let buffer = match String::from_utf8(buffer[..n].to_vec()) {
+                    Ok(s) => s,
+                    Err(e) => return Err(format!("Failed to convert bytes to string: {}", e)),
+                };
+                if !buffer.starts_with("+FULLRESYNC") {
+                    return Err(format!("Unexpected response from master: '{}'", buffer));
+                }
+                let parts: Vec<&str> = buffer.split_whitespace().collect();
+                if parts.len() < 3 {
+                    return Err("Invalid FULLRESYNC response from master".to_string());
+                }
+                let replid = parts[1].to_string();
+                let offset = parts[2]
+                    .parse::<u64>()
+                    .map_err(|_| "Invalid offset in FULLRESYNC response".to_string())?;
+
+                {
+                    env.set_master_replid(replid);
+                    env.set_master_repl_offset(offset);
                 }
             }
             _ => {

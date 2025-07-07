@@ -3,6 +3,8 @@ use std::{
     time::{Duration, SystemTime},
 };
 
+use rand::{distr::Alphanumeric, Rng};
+
 #[allow(dead_code)]
 pub struct Environment {
     role: String,
@@ -14,22 +16,24 @@ pub struct Environment {
     values: HashMap<String, (String, Option<SystemTime>)>,
 }
 
+fn generate_replid() -> String {
+    return rand::rng()
+        .sample_iter(&Alphanumeric)
+        .take(40)
+        .map(char::from)
+        .collect();
+}
+
 #[allow(dead_code)]
 impl Environment {
-    pub fn new(
-        role: String,
-        port: u16,
-        host: Option<(String, u16)>,
-        master_replid: String,
-        master_repl_offset: u64,
-    ) -> Self {
+    pub fn new(role: String, port: u16, host: Option<(String, u16)>) -> Self {
         Environment {
             role,
             port,
             master_host: host.clone().map(|(h, _)| h),
             master_port: host.clone().map(|(_, p)| p),
-            master_replid,
-            master_repl_offset,
+            master_replid: generate_replid(),
+            master_repl_offset: 0,
             values: HashMap::new(),
         }
     }
@@ -56,6 +60,14 @@ impl Environment {
 
     pub fn master_repl_offset(&self) -> u64 {
         self.master_repl_offset
+    }
+
+    pub fn set_master_replid(&mut self, replid: String) {
+        self.master_replid = replid;
+    }
+
+    pub fn set_master_repl_offset(&mut self, offset: u64) {
+        self.master_repl_offset = offset;
     }
 
     pub fn set(&mut self, key: String, value: String, px: Option<u64>) {

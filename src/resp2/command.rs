@@ -9,7 +9,8 @@ pub enum Resp2Command {
     GET,
     INFO,
     INTITIALIZE,
-    REPLCONF
+    REPLCONF,
+    PSYNC
 }
 
 impl Resp2Command {
@@ -23,6 +24,7 @@ impl Resp2Command {
             "INFO" => Resp2Command::INFO,
             "INTITIALIZE" => Resp2Command::INTITIALIZE,
             "REPLCONF" => Resp2Command::REPLCONF,
+            "PSYNC" => Resp2Command::PSYNC,
             _ => Resp2Command::UNDEFINED,
         }
     }
@@ -40,6 +42,7 @@ impl Display for Resp2Command {
             Resp2Command::INFO => write!(f, "INFO"),
             Resp2Command::INTITIALIZE => write!(f, "INTITIALIZE"),
             Resp2Command::REPLCONF => write!(f, "REPLCONF"),
+            Resp2Command::PSYNC => write!(f, "PSYNC"),
         }
     }
 }
