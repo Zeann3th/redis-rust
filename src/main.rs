@@ -1,58 +1,55 @@
 use std::{
-    io::{Read, Write},
+    io::{BufReader, Read, Write},
     net::TcpListener,
 };
+
+use crate::resp2::{command::Resp2Command, serialization::Deserialize};
+
+mod resp2;
 
 fn main() {
     let listener = TcpListener::bind("127.0.0.1:6379").unwrap();
 
     for stream in listener.incoming() {
         match stream {
-            Ok(mut stream) => {
-                let mut buf = String::new();
+            Ok(stream) => {
+                std::thread::spawn(move || {
+                    let mut reader = BufReader::new(stream.try_clone().unwrap());
 
-                match stream.read_to_string(&mut buf) {
-                    Ok(_) => {}
-                    Err(e) => {
-                        println!("Failed to read from stream: {}", e);
-                        continue;
-                    }
-                };
+                    loop {
+                        let mut buf = vec![0; 1024];
+                        let n = match reader.get_mut().read(&mut buf) {
+                            Ok(0) => break,
+                            Ok(n) => n,
+                            Err(e) => {
+                                println!("Failed to read from stream: {}", e);
+                                break;
+                            }
+                        };
 
-                let mut buf = buf.split(" ");
-
-                match buf.next() {
-                    Some(command) if command.to_uppercase() == "PING" => match buf.next() {
-                        Some(arg) => {
-                            match stream.write_all(format!("{}\r\n", arg).as_bytes()) {
-                                Ok(_) => {}
-                                Err(e) => {
-                                    println!("Failed to write to stream: {}", e);
-                                    continue;
+                        let mut resp2 = resp2::Resp2::new();
+                        match resp2.deserialize(buf[..n].to_vec()) {
+                            Ok(_) => match resp2.kind {
+                                Resp2Command::PING => {
+                                    if let Err(e) = reader.get_mut().write_all(b"+PONG\r\n") {
+                                        println!("Failed to write to stream: {}", e);
+                                        break;
+                                    }
                                 }
-                            };
-                        }
-                        None => {
-                            match stream.write_all(b"PONG\r\n") {
-                                Ok(_) => {}
-                                Err(e) => {
-                                    println!("Failed to write to stream: {}", e);
-                                    continue;
+                                _ => {
+                                    println!("Received command: {}", resp2.kind);
                                 }
-                            };
+                            },
+                            Err(e) => {
+                                println!("Failed to deserialize RESP2: {}", e);
+                                break;
+                            }
                         }
-                    },
-                    _ => {
-                        println!(
-                            "Received unknown command: {}",
-                            buf.collect::<Vec<&str>>().join(" ")
-                        );
-                        continue;
                     }
-                }
+                });
             }
             Err(e) => {
-                println!("error: {}", e);
+                println!("Connection failed: {}", e);
             }
         }
     }
