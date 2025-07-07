@@ -292,6 +292,12 @@ impl Resp2 {
                     env.set_master_repl_offset(offset);
                 }
             }
+            Resp2Command::REPLCONF => {
+                let stream = self.stream.as_mut().ok_or("Missing stream")?;
+                stream
+                    .write_all(b"+OK\r\n")
+                    .map_err(|e| format!("Failed to write to stream: {}", e))?;
+            }
             _ => {
                 let stream = self.stream.as_mut().ok_or("Missing stream")?;
                 let err = b"-ERR unknown command\r\n";
