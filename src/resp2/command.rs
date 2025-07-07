@@ -8,6 +8,8 @@ pub enum Resp2Command {
     SET,
     GET,
     INFO,
+    INTITIALIZE,
+    REPLCONF
 }
 
 impl Resp2Command {
@@ -19,6 +21,8 @@ impl Resp2Command {
             "SET" => Resp2Command::SET,
             "GET" => Resp2Command::GET,
             "INFO" => Resp2Command::INFO,
+            "INTITIALIZE" => Resp2Command::INTITIALIZE,
+            "REPLCONF" => Resp2Command::REPLCONF,
             _ => Resp2Command::UNDEFINED,
         }
     }
@@ -34,6 +38,8 @@ impl Display for Resp2Command {
             Resp2Command::SET => write!(f, "SET"),
             Resp2Command::GET => write!(f, "GET"),
             Resp2Command::INFO => write!(f, "INFO"),
+            Resp2Command::INTITIALIZE => write!(f, "INTITIALIZE"),
+            Resp2Command::REPLCONF => write!(f, "REPLCONF"),
         }
     }
 }

@@ -1,15 +1,12 @@
 use std::{
-    io::{BufReader, Read, Write},
-    net::{TcpListener, TcpStream},
+    io::{BufReader, Read},
+    net::TcpListener,
     sync::{Arc, Mutex},
 };
 
 use crate::{
     common::Environment,
-    resp2::{
-        serialization::{Deserialize, Serialize},
-        Resp2,
-    },
+    resp2::{serialization::Deserialize, Resp2},
 };
 
 mod common;
@@ -85,27 +82,22 @@ fn main() {
 
     let env = Arc::new(Mutex::new(Environment::new(
         role.clone(),
+        port,
+        Some(host.clone()),
         "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb".to_string(),
         0,
     )));
 
     if role.clone() == "slave" {
-        let mut master_stream = match TcpStream::connect(host.clone()) {
-            Ok(s) => s,
+        let mut resp2 = Resp2::new(env.clone());
+        resp2.set_kind(resp2::command::Resp2Command::INTITIALIZE);
+        match resp2.reflect() {
+            Ok(_) => println!("Slave initialized successfully."),
             Err(e) => {
-                panic!("Failed to connect to master: {}", e);
+                eprintln!("Failed to initialize slave: {}", e);
+                return;
             }
         };
-
-        let mut resp2 = Resp2::new(env.clone());
-        resp2.set_kind(resp2::command::Resp2Command::PING);
-        resp2.set_is_array(true);
-        resp2.set_data(vec!["PING".to_string()]);
-        let response: Vec<u8> = resp2.serialize();
-
-        if let Err(e) = master_stream.write_all(&response) {
-            panic!("Failed to write to stream: {}", e);
-        }
     }
 
     for stream in listener.incoming() {

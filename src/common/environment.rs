@@ -6,6 +6,9 @@ use std::{
 #[allow(dead_code)]
 pub struct Environment {
     role: String,
+    port: u16,
+    master_host: Option<String>,
+    master_port: Option<u16>,
     master_replid: String,
     master_repl_offset: u64,
     values: HashMap<String, (String, Option<SystemTime>)>,
@@ -13,9 +16,18 @@ pub struct Environment {
 
 #[allow(dead_code)]
 impl Environment {
-    pub fn new(role: String, master_replid: String, master_repl_offset: u64) -> Self {
+    pub fn new(
+        role: String,
+        port: u16,
+        host: Option<(String, u16)>,
+        master_replid: String,
+        master_repl_offset: u64,
+    ) -> Self {
         Environment {
             role,
+            port,
+            master_host: host.clone().map(|(h, _)| h),
+            master_port: host.clone().map(|(_, p)| p),
             master_replid,
             master_repl_offset,
             values: HashMap::new(),
@@ -24,6 +36,18 @@ impl Environment {
 
     pub fn role(&self) -> &str {
         &self.role
+    }
+
+    pub fn port(&self) -> u16 {
+        self.port
+    }
+
+    pub fn master_host(&self) -> Option<&str> {
+        self.master_host.as_deref()
+    }
+
+    pub fn master_port(&self) -> Option<u16> {
+        self.master_port
     }
 
     pub fn master_replid(&self) -> &str {

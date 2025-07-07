@@ -3,7 +3,8 @@ pub mod info;
 pub mod serialization;
 
 use std::{
-    io::Write,
+    io::{Read, Write},
+    net::TcpStream,
     sync::{Arc, Mutex},
 };
 
@@ -98,15 +99,15 @@ impl Resp2 {
     }
 
     pub fn reflect(&mut self) -> Result<(), String> {
-        let stream = self.stream.as_mut().ok_or("Missing stream")?;
-
         match self.kind {
             Resp2Command::PING => {
+                let stream = self.stream.as_mut().ok_or("Missing stream")?;
                 stream
                     .write_all(b"+PONG\r\n")
                     .map_err(|e| format!("Failed to write to stream: {}", e))?;
             }
             Resp2Command::ECHO => {
+                let stream = self.stream.as_mut().ok_or("Missing stream")?;
                 let msg = self.data.get(1).cloned().unwrap_or_default();
                 let response = format!("+{}\r\n", msg);
                 stream
@@ -114,6 +115,8 @@ impl Resp2 {
                     .map_err(|e| format!("Failed to write to stream: {}", e))?;
             }
             Resp2Command::SET => {
+                let stream = self.stream.as_mut().ok_or("Missing stream")?;
+
                 if self.data.len() < 3 {
                     return Err("SET command requires at least 3 arguments".to_string());
                 }
@@ -141,6 +144,8 @@ impl Resp2 {
                     .map_err(|e| format!("Failed to write to stream: {}", e))?;
             }
             Resp2Command::GET => {
+                let stream = self.stream.as_mut().ok_or("Missing stream")?;
+
                 if self.data.len() < 2 {
                     return Err("GET command requires at least 2 arguments".to_string());
                 }
@@ -161,6 +166,8 @@ impl Resp2 {
                 }
             }
             Resp2Command::INFO => {
+                let stream = self.stream.as_mut().ok_or("Missing stream")?;
+
                 if self.data.len() < 2 {
                     return Err("INFO command requires at least 1 argument".to_string());
                 }
@@ -185,7 +192,72 @@ impl Resp2 {
                     .write_all(&response)
                     .map_err(|e| format!("Failed to write to stream: {}", e))?;
             }
+            Resp2Command::INTITIALIZE => {
+                let env = self.environment.lock().map_err(|e| e.to_string())?;
+                let master_host = env.master_host().ok_or("Master host not set")?;
+                let master_port = env.master_port().ok_or("Master port not set")?;
+
+                let mut master_stream = TcpStream::connect((master_host, master_port))
+                    .map_err(|e| format!("Failed to connect to master: {}", e))?;
+
+                // PING
+                let mut ping = Resp2::new(self.environment.clone());
+                ping.set_kind(Resp2Command::PING);
+                ping.set_is_array(true);
+                ping.set_data(vec!["PING".to_string()]);
+                let ping_payload: Vec<u8> = ping.serialize();
+
+                master_stream
+                    .write_all(&ping_payload)
+                    .map_err(|e| format!("Failed to send handshake to master: {}", e))?;
+
+                // PONG
+                if self.read_master(&mut master_stream).is_err() {
+                    return Err("Failed to read from master".to_string());
+                }
+
+                // REPLCONF listening-port <PORT>
+                let mut replconf = Resp2::new(self.environment.clone());
+                replconf.set_kind(Resp2Command::REPLCONF);
+                replconf.set_is_array(true);
+                replconf.set_data(vec![
+                    "REPLCONF".to_string(),
+                    "listening-port".to_string(),
+                    env.port().to_string(),
+                ]);
+                let replconf_payload: Vec<u8> = replconf.serialize();
+
+                master_stream
+                    .write_all(&replconf_payload)
+                    .map_err(|e| format!("Failed to send REPLCONF to master: {}", e))?;
+
+                // OK
+                if self.read_master(&mut master_stream).is_err() {
+                    return Err("Failed to read from master".to_string());
+                }
+
+                // REPLCONF capa psync2
+                let mut replconf_capa = Resp2::new(self.environment.clone());
+                replconf_capa.set_kind(Resp2Command::REPLCONF);
+                replconf_capa.set_is_array(true);
+                replconf_capa.set_data(vec![
+                    "REPLCONF".to_string(),
+                    "capa".to_string(),
+                    "psync2".to_string(),
+                ]);
+                let replconf_capa_payload: Vec<u8> = replconf_capa.serialize();
+
+                master_stream
+                    .write_all(&replconf_capa_payload)
+                    .map_err(|e| format!("Failed to send REPLCONF capa to master: {}", e))?;
+
+                // OK
+                if self.read_master(&mut master_stream).is_err() {
+                    return Err("Failed to read from master".to_string());
+                }
+            }
             _ => {
+                let stream = self.stream.as_mut().ok_or("Missing stream")?;
                 let err = b"-ERR unknown command\r\n";
                 stream
                     .write_all(err)
@@ -194,6 +266,26 @@ impl Resp2 {
         }
 
         Ok(())
+    }
+
+    fn read_master(&self, stream: &mut TcpStream) -> Result<bool, String> {
+        let mut buffer = vec![0; 1024];
+        let n = stream
+            .read(&mut buffer)
+            .map_err(|e| format!("Failed to read from stream: {}", e))?;
+        if n == 0 {
+            return Err("Connection closed by master".to_string());
+        }
+
+        let buffer = match String::from_utf8(buffer[..n].to_vec()) {
+            Ok(s) => s,
+            Err(e) => return Err(format!("Failed to convert bytes to string: {}", e)),
+        };
+        if !buffer.starts_with("+OK") && !buffer.starts_with("+PONG") {
+            return Err(format!("Unexpected response from master: '{}'", buffer));
+        }
+
+        Ok(true)
     }
 }
 
