@@ -1,23 +1,27 @@
 pub mod command;
 pub mod serialization;
 
+use std::io::Write;
+
 use command::*;
 use serialization::*;
 
 pub struct Resp2 {
     pub kind: Resp2Command,
     pub data: Vec<String>,
+    pub stream: Option<std::net::TcpStream>,
 }
 
 impl Resp2 {
-    pub fn new() -> Self {
+    pub fn with_stream(stream: std::net::TcpStream) -> Self {
         Resp2 {
             kind: Resp2Command::UNDEFINED,
             data: Vec::new(),
+            stream: Some(stream),
         }
     }
 
-    pub fn process(&mut self, input: &str) -> Result<(), String> {
+    pub fn process_deserialization(&mut self, input: &str) -> Result<(), String> {
         let mut parts = input.split("\r\n");
 
         let len_str = parts.next().ok_or("Missing RESP2 array header")?;
@@ -61,6 +65,33 @@ impl Resp2 {
 
         Ok(())
     }
+
+    pub fn reflect(&mut self) -> Result<(), String> {
+        let stream = self.stream.as_mut().ok_or("Missing stream")?;
+
+        match self.kind {
+            Resp2Command::PING => {
+                stream
+                    .write_all(b"+PONG\r\n")
+                    .map_err(|e| format!("Failed to write to stream: {}", e))?;
+            }
+            Resp2Command::ECHO => {
+                let msg = self.data.get(1).cloned().unwrap_or_default();
+                let response = format!("+{}\r\n", msg);
+                stream
+                    .write_all(response.as_bytes())
+                    .map_err(|e| format!("Failed to write to stream: {}", e))?;
+            }
+            _ => {
+                let err = b"-ERR unknown command\r\n";
+                stream
+                    .write_all(err)
+                    .map_err(|e| format!("Failed to write to stream: {}", e))?;
+            }
+        }
+
+        Ok(())
+    }
 }
 
 impl Serialize<String> for Resp2 {
@@ -92,13 +123,13 @@ impl Serialize<Vec<u8>> for Resp2 {
 
 impl Deserialize<&str> for Resp2 {
     fn deserialize(&mut self, input: &str) -> Result<(), String> {
-        self.process(input)
+        self.process_deserialization(input)
     }
 }
 
 impl Deserialize<Vec<u8>> for Resp2 {
     fn deserialize(&mut self, input: Vec<u8>) -> Result<(), String> {
         let input = String::from_utf8(input).map_err(|e| e.to_string())?;
-        self.process(&input)
+        self.process_deserialization(&input)
     }
 }

@@ -3,7 +3,8 @@ use std::fmt::Display;
 pub enum Resp2Command {
     PING,
     UNDEFINED,
-    PONG
+    PONG,
+    ECHO,
 }
 
 impl Resp2Command {
@@ -11,6 +12,7 @@ impl Resp2Command {
         match cmd.to_uppercase().as_str() {
             "PING" => Resp2Command::PING,
             "PONG" => Resp2Command::PONG,
+            "ECHO" => Resp2Command::ECHO,
             _ => Resp2Command::UNDEFINED,
         }
     }
@@ -22,6 +24,7 @@ impl Display for Resp2Command {
             Resp2Command::PING => write!(f, "PING"),
             Resp2Command::UNDEFINED => write!(f, "UNDEFINED"),
             Resp2Command::PONG => write!(f, "PONG"),
+            Resp2Command::ECHO => write!(f, "ECHO"),
         }
     }
 }
