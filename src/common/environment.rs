@@ -90,6 +90,10 @@ impl Environment {
         &self.slaves
     }
 
+    pub fn values(&self) -> &HashMap<String, (String, Option<SystemTime>)> {
+        &self.values
+    }
+
     pub fn get_slave(&self, stream: &TcpStream) -> Option<&SlaveConnection> {
         if let Ok(target_addr) = stream.peer_addr() {
             self.slaves.iter().find(|slave| {

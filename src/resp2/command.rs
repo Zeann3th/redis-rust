@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-pub enum Resp2Command {
+pub enum RespCommand {
     PING,
     UNDEFINED,
     PONG,
@@ -10,39 +10,39 @@ pub enum Resp2Command {
     INFO,
     INTITIALIZE,
     REPLCONF,
-    PSYNC
+    PSYNC,
 }
 
-impl Resp2Command {
+impl RespCommand {
     pub fn from_str(cmd: &str) -> Self {
         match cmd.to_uppercase().as_str() {
-            "PING" => Resp2Command::PING,
-            "PONG" => Resp2Command::PONG,
-            "ECHO" => Resp2Command::ECHO,
-            "SET" => Resp2Command::SET,
-            "GET" => Resp2Command::GET,
-            "INFO" => Resp2Command::INFO,
-            "INTITIALIZE" => Resp2Command::INTITIALIZE,
-            "REPLCONF" => Resp2Command::REPLCONF,
-            "PSYNC" => Resp2Command::PSYNC,
-            _ => Resp2Command::UNDEFINED,
+            "PING" => RespCommand::PING,
+            "PONG" => RespCommand::PONG,
+            "ECHO" => RespCommand::ECHO,
+            "SET" => RespCommand::SET,
+            "GET" => RespCommand::GET,
+            "INFO" => RespCommand::INFO,
+            "INTITIALIZE" => RespCommand::INTITIALIZE,
+            "REPLCONF" => RespCommand::REPLCONF,
+            "PSYNC" => RespCommand::PSYNC,
+            _ => RespCommand::UNDEFINED,
         }
     }
 }
 
-impl Display for Resp2Command {
+impl Display for RespCommand {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Resp2Command::PING => write!(f, "PING"),
-            Resp2Command::UNDEFINED => write!(f, "UNDEFINED"),
-            Resp2Command::PONG => write!(f, "PONG"),
-            Resp2Command::ECHO => write!(f, "ECHO"),
-            Resp2Command::SET => write!(f, "SET"),
-            Resp2Command::GET => write!(f, "GET"),
-            Resp2Command::INFO => write!(f, "INFO"),
-            Resp2Command::INTITIALIZE => write!(f, "INTITIALIZE"),
-            Resp2Command::REPLCONF => write!(f, "REPLCONF"),
-            Resp2Command::PSYNC => write!(f, "PSYNC"),
+            RespCommand::PING => write!(f, "PING"),
+            RespCommand::UNDEFINED => write!(f, "UNDEFINED"),
+            RespCommand::PONG => write!(f, "PONG"),
+            RespCommand::ECHO => write!(f, "ECHO"),
+            RespCommand::SET => write!(f, "SET"),
+            RespCommand::GET => write!(f, "GET"),
+            RespCommand::INFO => write!(f, "INFO"),
+            RespCommand::INTITIALIZE => write!(f, "INTITIALIZE"),
+            RespCommand::REPLCONF => write!(f, "REPLCONF"),
+            RespCommand::PSYNC => write!(f, "PSYNC"),
         }
     }
 }

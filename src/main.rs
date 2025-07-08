@@ -2,6 +2,7 @@ use std::{
     io::{BufReader, Read},
     net::{TcpListener, TcpStream},
     sync::{Arc, Mutex},
+    thread,
 };
 
 use crate::{
@@ -82,56 +83,128 @@ fn main() {
 
     let env = Arc::new(Mutex::new(Environment::new(role.clone(), port)));
 
-    if role.clone() == "slave" {
-        let mut resp2 = Resp2::new(env.clone());
-        resp2.set_kind(resp2::command::Resp2Command::INTITIALIZE);
+    if role == "slave" {
         let mut master_stream = TcpStream::connect(host).expect("Failed to connect to master");
-        match resp2.reflect(&mut master_stream) {
-            Ok(_) => println!("Slave initialized successfully."),
-            Err(e) => {
-                eprintln!("Failed to initialize slave: {}", e);
-                return;
-            }
-        };
+
+        let mut init = Resp2::new(env.clone());
+        init.set_kind(resp2::command::RespCommand::INTITIALIZE);
+        if let Err(e) = init.reflect(&mut master_stream) {
+            eprintln!("Failed to initialize slave: {}", e);
+            return;
+        }
+
+        spawn_master_listener(master_stream, Arc::clone(&env));
     }
 
     for stream in listener.incoming() {
         match stream {
-            Ok(mut stream) => {
+            Ok(stream) => {
                 let env_clone = Arc::clone(&env);
-
-                std::thread::spawn(move || {
-                    let mut reader = BufReader::new(stream.try_clone().unwrap());
-
-                    loop {
-                        let mut buf = vec![0; 1024];
-                        let n = match reader.get_mut().read(&mut buf) {
-                            Ok(0) => break,
-                            Ok(n) => n,
-                            Err(e) => {
-                                println!("Failed to read from stream: {}", e);
-                                break;
-                            }
-                        };
-
-                        let mut resp2 = resp2::Resp2::new(env_clone.clone());
-                        resp2.set_literal(buf[..n].to_vec());
-
-                        if let Err(e) = resp2.deserialize(buf[..n].to_vec()) {
-                            println!("Failed to deserialize RESP2: {}", e);
-                            break;
-                        }
-
-                        if let Err(e) = resp2.reflect(&mut stream) {
-                            println!("Error handling command: {}", e);
-                            break;
-                        }
-                    }
-                });
+                thread::spawn(move || handle_client(stream, env_clone));
             }
             Err(e) => {
                 println!("Connection failed: {}", e);
             }
         }
     }
+}
+
+fn handle_client(mut stream: TcpStream, env: Arc<Mutex<Environment>>) {
+    let mut reader = BufReader::new(stream.try_clone().unwrap());
+    let mut buffer = Vec::new();
+
+    loop {
+        let mut temp_buf = [0u8; 1024];
+        let n = match reader.get_mut().read(&mut temp_buf) {
+            Ok(0) => break,
+            Ok(n) => n,
+            Err(e) => {
+                println!("Failed to read from stream: {}", e);
+                break;
+            }
+        };
+
+        buffer.extend_from_slice(&temp_buf[..n]);
+
+        while let Some((command_bytes, used)) = match try_parse_one_command(&buffer) {
+            Ok(result) => result,
+            Err(e) => {
+                println!("Parse error: {}", e);
+                return;
+            }
+        } {
+            let mut resp2 = Resp2::new(env.clone());
+            resp2.set_literal(command_bytes.clone());
+
+            if let Err(e) = resp2.deserialize(command_bytes.clone()) {
+                println!("Failed to deserialize: {}", e);
+                return;
+            }
+
+            if let Err(e) = resp2.reflect(&mut stream) {
+                println!("Command error: {}", e);
+                return;
+            }
+
+            buffer.drain(..used);
+        }
+    }
+}
+
+fn spawn_master_listener(stream: TcpStream, env: Arc<Mutex<Environment>>) {
+    thread::spawn(move || handle_client(stream, env));
+}
+
+fn try_parse_one_command(buf: &[u8]) -> Result<Option<(Vec<u8>, usize)>, String> {
+    if buf.is_empty() {
+        return Ok(None);
+    }
+
+    let input = match std::str::from_utf8(buf) {
+        Ok(s) => s,
+        Err(_) => return Ok(None),
+    };
+
+    let mut lines = input.split("\r\n").peekable();
+    let mut total = 0;
+
+    let first = match lines.next() {
+        Some(line) => line,
+        None => return Ok(None),
+    };
+    total += first.len() + 2;
+
+    if !first.starts_with('*') {
+        return Err(format!("Expected RESP array, got '{}'", first));
+    }
+
+    let count = match first[1..].parse::<usize>() {
+        Ok(n) => n,
+        Err(_) => return Err(format!("Invalid array count '{}'", first)),
+    };
+
+    for _ in 0..count {
+        let size_line = lines.next().ok_or("Missing $length line")?;
+        total += size_line.len() + 2;
+        if !size_line.starts_with('$') {
+            return Err(format!("Expected bulk string, got '{}'", size_line));
+        }
+
+        let len = size_line[1..]
+            .parse::<usize>()
+            .map_err(|_| format!("Invalid bulk length '{}'", size_line))?;
+
+        let data_line = lines.next().ok_or("Missing bulk string value")?;
+        total += data_line.len() + 2;
+
+        if data_line.len() != len {
+            return Err("Bulk string length mismatch".to_string());
+        }
+    }
+
+    if total > buf.len() {
+        return Ok(None);
+    }
+
+    Ok(Some((buf[..total].to_vec(), total)))
 }
