@@ -1,6 +1,6 @@
 use std::{
     io::{BufReader, Read},
-    net::TcpListener,
+    net::{TcpListener, TcpStream},
     sync::{Arc, Mutex},
 };
 
@@ -80,16 +80,13 @@ fn main() {
     let listener = TcpListener::bind(("127.0.0.1", port)).unwrap();
     println!("Listening on 127.0.0.1:{}", port);
 
-    let env = Arc::new(Mutex::new(Environment::new(
-        role.clone(),
-        port,
-        Some(host.clone()),
-    )));
+    let env = Arc::new(Mutex::new(Environment::new(role.clone(), port)));
 
     if role.clone() == "slave" {
         let mut resp2 = Resp2::new(env.clone());
         resp2.set_kind(resp2::command::Resp2Command::INTITIALIZE);
-        match resp2.reflect() {
+        let mut master_stream = TcpStream::connect(host).expect("Failed to connect to master");
+        match resp2.reflect(&mut master_stream) {
             Ok(_) => println!("Slave initialized successfully."),
             Err(e) => {
                 eprintln!("Failed to initialize slave: {}", e);
@@ -100,7 +97,7 @@ fn main() {
 
     for stream in listener.incoming() {
         match stream {
-            Ok(stream) => {
+            Ok(mut stream) => {
                 let env_clone = Arc::clone(&env);
 
                 std::thread::spawn(move || {
@@ -118,14 +115,14 @@ fn main() {
                         };
 
                         let mut resp2 = resp2::Resp2::new(env_clone.clone());
-                        resp2.set_stream(stream.try_clone().unwrap());
+                        resp2.set_literal(buf[..n].to_vec());
 
                         if let Err(e) = resp2.deserialize(buf[..n].to_vec()) {
                             println!("Failed to deserialize RESP2: {}", e);
                             break;
                         }
 
-                        if let Err(e) = resp2.reflect() {
+                        if let Err(e) = resp2.reflect(&mut stream) {
                             println!("Error handling command: {}", e);
                             break;
                         }
