@@ -1,5 +1,4 @@
 pub mod command;
-pub mod info;
 pub mod serialization;
 
 use std::{
@@ -14,7 +13,7 @@ use base64::Engine;
 use command::*;
 use serialization::*;
 
-use crate::{common::Environment, resp2::info::InfoSection};
+use crate::common::Environment;
 
 pub struct Resp2 {
     kind: RespCommand,
@@ -103,8 +102,8 @@ impl Resp2 {
                     return Err("INFO command requires at least 1 argument".to_string());
                 }
                 let section = &self.data[1];
-                let response: Vec<u8> = match info::InfoSection::from_str(section) {
-                    InfoSection::REPLICATION => {
+                let response: Vec<u8> = match section.to_uppercase().as_str() {
+                    "REPLICATION" => {
                         let env = self.environment.lock().map_err(|e| e.to_string())?;
                         let content = format!(
                             "role:{}\r\nmaster_replid:{}\r\nmaster_repl_offset:{}",
@@ -116,6 +115,9 @@ impl Resp2 {
                         format!("${}\r\n{}\r\n", content.len(), content)
                             .as_bytes()
                             .to_vec()
+                    }
+                    _ => {
+                        return Err(format!("Unknown INFO section: '{}'", section));
                     }
                 };
 
